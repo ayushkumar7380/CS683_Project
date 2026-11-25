@@ -1,0 +1,78 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+sim
+
+# Temporary or Utility files
+*.swp
+*.orig
+tags
+.sconsign.dblite
+bin
+
+# Compiled files
+*.o
+*.os
+*.a
+*.so
+.sconsign.dblite
+sim
+
+# Generated experiment outputs
+project_run_logs/
+scalability_results/
+restore_latency_results/
+step11_results/
+step13_verified_results/
+
+# Python temporary files
+__pycache__/
+*.pyc
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+
+
+# Generated GEMV datasets
+/data/
+
+# Build files
+/bin/
+/libdramsim/
+/sim
+
+# Experiment outputs
+/scalability_results/
+/restore_latency_results/
+/project_run_logs/
