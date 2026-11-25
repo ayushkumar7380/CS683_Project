@@ -2,87 +2,82 @@
 
 ## About the project
 
-This is my CS683 project on improving GEMV (General Matrix-Vector Multiplication) performance in Samsung's PIMSimulator. I started by profiling GEMV execution to understand where time was being spent. One issue I found was that the same input-vector data was loaded into GRF-A multiple times while processing different output tiles.
+This is my CS683 project on improving GEMV (General Matrix-Vector Multiplication) performance in Samsung's PIMSimulator. While profiling GEMV execution, I found that the same input-vector data was loaded into GRF-A repeatedly when the simulator moved between output tiles.
 
-To reduce these repeated loads, I added an experimental GRF-A tile cache to the simulator. The idea is to store input operands when they are loaded for the first time and reuse them for later output tiles instead of sending the same GRF-A payload writes again.
+To reduce those repeated transfers, I added an experimental GRF-A tile cache. Input operands are cached when they are first loaded and restored for later output tiles instead of issuing the same payload writes again.
 
-This is a **simulator-level extension**, not a feature of the original Samsung FIMDRAM hardware.
+**This is an experimental simulator-level extension, not a feature of the original Samsung FIMDRAM hardware.**
 
 ## What I changed
 
-- Added a **2 KiB input-tile cache per PIM rank** to hold reusable GRF-A operands. It stores eight tiles, each containing eight 256-bit words.
-- Added two cache-control operations: **SELECT** chooses a stored input tile, and **RESTORE** copies it back into GRF-A.
-- Updated the GEMV command generator to use normal loading for the first output tile and cache-based reuse for later output tiles.
-- Kept the existing MAC operations, GRF-B accumulation, and output-tile-major execution order unchanged.
-- Added profiling and an optional RESTORE-overhead experiment to understand when the cache helps and when its extra cost becomes too high.
+- Added a **2 KiB input-tile cache per PIM rank**, storing eight tiles of eight 256-bit words each (excluding metadata).
+- Introduced two simulator-specific cache-control operations: **SELECT** chooses a cached tile and **RESTORE** copies it back to GRF-A.
+- Modified the GEMV command generator to use normal operand loads for the first output tile and cache-based reuse for subsequent output tiles.
+- Kept the original MAC instructions, GRF-B accumulation, and output-tile-major execution order unchanged.
+- Added profiling and an optional RESTORE command-issue overhead experiment.
 
-SELECT and RESTORE are experimental simulator controls, not native Samsung FIMDRAM instructions.
+SELECT and RESTORE are **not** native instructions in Samsung's original FIMDRAM ISA.
 
-## Setup
+## Requirements
 
-The project is intended to run on Linux or Ubuntu/WSL. Install the build tools and Python dependencies:
+The project is intended for Linux or Ubuntu/WSL. Install the required tools:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential scons libgtest-dev python3 python3-numpy
+sudo apt install -y git build-essential scons libgtest-dev python3 python3-numpy
 ```
 
-Clone the repository and build the simulator:
+## Setup and dataset download
+
+I have split the GEMV input dataset across two GitHub repositories so that it does not need to be committed as a single large file in the simulator repository:
+
+- [GEMV dataset — part 1](https://github.com/ayushkumar7380/data1_cs_683project)
+- [GEMV dataset — part 2](https://github.com/ayushkumar7380/data2_cs683_project)
+
+The included `setup_data.sh` script clones both data repositories, combines the supported GEMV input files, and places them in `data/gemv/`. It checks for file-name conflicts rather than silently overwriting existing data. The dataset repositories must be accessible to the person running the script.
+
+**Clone and prepare the project:**
 
 ```bash
-ggit clone https://github.com/ayushkumar7380/CS683_Project.git
+git clone https://github.com/ayushkumar7380/CS683_Project.git
 cd CS683_Project
+
+# Download and combine the two GEMV dataset parts
+bash setup_data.sh
+
+# Confirm the data is available
+ls data/gemv
+find data/gemv -name '*.npy' | wc -l
+
+# Build the simulator
 scons
 ```
 
 The compiled simulator executable is named `sim`.
 
-## Extracting GEMV data from the ZIP
+**Note:** `setup_data.sh` needs to be present in the root of this repository. If the two dataset repositories are private, users need read access or suitable GitHub authentication. I have not independently verified a fresh clone of both dataset repositories; test the setup on a clean checkout before relying on it for reproduction.
 
-I keep the larger GEMV input files in a ZIP archive rather than directly in the repository. If you have downloaded the data archive, place it in the **same folder as `extract_gemv_data.py`** (the `PIMSimulator/` directory). Name it `data.zip`, or specify its filename when running the script.
-
-```bash
-# Run from the PIMSimulator/ folder
-python3 extract_gemv_data.py
-```
-
-If your archive uses a different name, for example `GEMV_inputs.zip`:
-
-```bash
-python3 extract_gemv_data.py GEMV_inputs.zip
-```
-
-The script extracts the files to `PIMSimulator/data/`. It works whether the ZIP contains a top-level `data/` directory or files directly inside the archive. It keeps existing data files by default; add `--overwrite` only if you want to replace them.
-
-```bash
-# Check the extracted data
-ls data
-du -sh data
-```
-
-**Note:** A large data ZIP may be too big for a normal GitHub Git push (GitHub blocks individual Git files above 100 MiB). In that case, share the archive separately, or let the existing experiment scripts generate the GEMV input files locally. The `run_project.sh --full` workflow generates its benchmark inputs and does not require this ZIP for those tests.
+The project also includes Python data-generation scripts. In particular, the full scalability workflow generates its own required GEMV benchmark inputs, so those experiments may be run without downloading the pre-generated dataset.
 
 ## Running the experiments
 
-The easiest way to run the project is through `run_project.sh`:
+Run the commands from the project root after building:
 
 ```bash
-# Run a basic smoke test
+# Basic smoke test
 bash run_project.sh --smoke
 
-# Run a smaller baseline/cache comparison
+# Smaller baseline-vs-cache comparison
 bash run_project.sh --quick
 
-# Run all six GEMV configurations
+# All six GEMV configurations
 bash run_project.sh --full
 
-# Test the effect of extra RESTORE overhead
+# Optional RESTORE-overhead experiment
 bash run_project.sh --restore
 ```
 
-The scripts can generate the required GEMV input data locally, run correctness and performance tests, and save the results. If you already have the GEMV data ZIP, extract it using the command above.
-
-To view the six-workload results:
+To view the six-workload summary:
 
 ```bash
 cat scalability_results/scalability_summary.csv
@@ -90,7 +85,7 @@ cat scalability_results/scalability_summary.csv
 
 ## Results
 
-I compared baseline PIM execution with the cache-enabled version across six GEMV workloads.
+I compared baseline PIM execution with my cache-enabled version across six GEMV workloads.
 
 | GEMV matrix | Baseline PIM cycles | Cache-enabled PIM cycles | Cycle reduction |
 |---|---:|---:|---:|
@@ -101,30 +96,31 @@ I compared baseline PIM execution with the cache-enabled version across six GEMV
 | 8192 × 512 | 3,767 | 3,668 | 2.63% |
 | 16384 × 512 | 7,176 | 6,880 | 4.13% |
 
-For the **16384 × 1024** workload, generated GRF-A payload writes went from **16,384 to 4,096**, a **75% reduction**. The required MAC instruction counts stayed the same, and correctness checks passed.
+For the **16384 × 1024** workload, generated GRF-A payload writes fell from **16,384 to 4,096**, a **75% reduction**. MAC instruction counts remained unchanged and the correctness checks passed.
 
-The single-output-tile case did not improve because there was no opportunity to reuse the input vector across output tiles. Another important finding was that fewer GRF-A writes do not translate directly into the same percentage of cycle savings: command scheduling, DRAM timing, and RESTORE operations also contribute to execution time.
+The 4096 × 1024 workload showed no benefit because it only uses one output tile, leaving no opportunity to reuse operands across output tiles. Fewer operand writes also do not guarantee the same percentage of cycle savings: DRAM timing constraints, command scheduling, and other operations still affect execution time.
 
-I also varied the modeled RESTORE penalty. For the 12288 × 1024 workload, the cache helped at zero extra penalty, but became slower than baseline at the tested penalty of 64 command-issue cycles per RESTORE. This is a **simulated command-issue cooldown**, not a measured SRAM latency.
+I also tested the sensitivity to modeled RESTORE overhead. On the 12288 × 1024 workload, the cache helped with zero extra penalty but became slower than baseline when a penalty of 64 command-issue cycles per RESTORE was applied. **This models command-issue cooldown, not measured SRAM latency.**
 
 ## Main implementation files
 
-| File | Main purpose |
+| File | Purpose |
 |---|---|
 | `src/tests/PIMKernel.cpp` | GEMV tile traversal and cache-control command generation |
 | `src/tests/PIMKernel.h` | Cache-related declarations |
-| `src/PIMRank.cpp` / `src/PIMRank.h` | Cache storage, fill, selection, and restore state |
+| `src/PIMRank.cpp` / `src/PIMRank.h` | Cache storage, filling, selection, and restore logic |
 | `src/Rank.cpp` | Command handling and tracing |
-| `src/MemoryController.cpp` / `src/MemoryController.h` | RESTORE timing model and related counters |
+| `src/MemoryController.cpp` / `src/MemoryController.h` | RESTORE timing model and counters |
 | `src/MultiChannelMemorySystem.cpp` | Memory-system profiling |
 | `src/tests/PIMBenchTestCases.cpp` | Performance test cases |
 | `src/tests/KernelTestCases.cpp` | Correctness test cases |
+| `setup_data.sh` | Download and merge the two dataset repositories into `data/gemv/` |
 
-The repository also contains the Python data-generation scripts and Bash scripts used to run and analyze the experiments.
+The repository also includes data-generation scripts, experiment runners, and analysis scripts.
 
 ## Conclusion
 
-The experiments showed that keeping reusable input tiles close to GRF-A can remove a large number of repeated operand-loading commands and improve simulated GEMV performance. The best cycle reduction I observed was **7.88%**, with up to **75% fewer generated GRF-A payload writes**. A useful next step would be to compare different cache sizes and evaluate physical area, energy, and realistic restore latency.
+The experiments showed that retaining reusable input-vector tiles near GRF-A can eliminate many redundant operand-loading commands and improve simulated GEMV performance. I observed up to **75% fewer generated GRF-A payload writes** and a maximum **7.88% reduction in simulated PIM cycles**, while retaining numerical correctness. Future work could explore other cache sizes and evaluate physical area, energy, and realistic hardware restore latency.
 
 ## Acknowledgment
 
